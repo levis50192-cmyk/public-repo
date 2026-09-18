@@ -25,14 +25,44 @@ MAX_KEEP = 8000  # 約可涵蓋最近一個多月的每 5 分鐘開獎，避免�
 
 
 def fetch_latest():
-    req = urllib.request.Request(API_URL, headers={"User-Agent": "bingo-analysis-bot/1.0"})
+    req = urllib.request.Request(
+        API_URL,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; bingo-analysis-bot/1.0)",
+            "Accept": "application/json",
+        },
+    )
     with urllib.request.urlopen(req, timeout=30) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
-    # 相容 API 直接回傳陣列，或包在 {"data": [...]} 兩種格式
-    records = payload.get("data", payload) if isinstance(payload, dict) else payload
+        status = resp.status
+        raw_bytes = resp.read()
+
+    raw_text = raw_bytes.decode("utf-8", errors="replace")
+    try:
+        payload = json.loads(raw_text)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"回應不是合法 JSON（HTTP {status}）：{raw_text[:300]!r}"
+        ) from e
+
+    # 相容 API 直接回傳陣列，或包在 {"data": [...]} 裡兩種格式；
+    # 如果是其他形狀（例如錯誤訊息物件 {"error": "..."}），明確報錯，
+    # 不要誤把它當成資料列（之前的 bug：對字典 fallback 到自己，
+    # 結果對字典做 for 迴圈會拿到 key 字串，導致 'str' object has no
+    # attribute 'get'）。
+    if isinstance(payload, list):
+        records = payload
+    elif isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        records = payload["data"]
+    else:
+        raise RuntimeError(
+            f"回應格式不是預期的陣列或 {{'data': [...]}}（HTTP {status}）："
+            f"{raw_text[:300]!r}"
+        )
 
     out = []
     for r in records:
+        if not isinstance(r, dict):
+            continue
         nums = r.get("numbers")
         if not isinstance(nums, list) or len(nums) != 20:
             continue
