@@ -10,10 +10,13 @@ gameTypeId=10）最新開獎資料，合併進 data/draws.json。
 API 為公開唯讀端點，不需要金鑰或登入：
     GET https://lottery.timetable.tw/api/draws?gameTypeId=10&limit=500&sortOrder=DESC
 """
+import datetime
 import json
 import os
 import sys
 import urllib.request
+
+TAIPEI_OFFSET = datetime.timedelta(hours=8)  # 台灣全年不用日光節約時間，固定 UTC+8
 
 API_URL = (
     "https://lottery.timetable.tw/api/draws"
@@ -74,12 +77,27 @@ def fetch_latest():
         period = r.get("period")
         if period is None:
             continue
+        # API 的 created_at 是 UTC 時間，不是台灣本地時間；之前直接把它當
+        # 台灣時間顯示，導致每天 UTC 16:00~23:59（=台灣 00:00~07:59）開出
+        # 的期別，日期跟時間都會少 8 小時、甚至日期跳到前一天。這裡統一轉
+        # 成台灣時間（UTC+8）再拆成 date / time 兩個欄位。draw_date 欄位
+        # 同樣可能是以 UTC 日界線切的，所以不直接採用，一律以轉換後的結果
+        # 為準；轉換失敗（欄位缺失或格式異常）才退回原本的 draw_date。
         created_at = r.get("created_at") or ""
+        date_str, time_str = r.get("draw_date"), ""
+        if created_at:
+            try:
+                dt_utc = datetime.datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                dt_tw = dt_utc + TAIPEI_OFFSET
+                date_str = dt_tw.strftime("%Y-%m-%d")
+                time_str = dt_tw.strftime("%H:%M")
+            except ValueError:
+                pass
         out.append(
             {
                 "period": str(period),
-                "date": r.get("draw_date"),
-                "time": created_at[11:16] if len(created_at) >= 16 else "",
+                "date": date_str,
+                "time": time_str,
                 "numbers": nums,
                 # 這個公開資料源目前對賓果賓果不提供超級獎號（回傳 null），
                 # analysis.py 的驗證邏輯本來就把 superNumber 當作可選欄位處理。

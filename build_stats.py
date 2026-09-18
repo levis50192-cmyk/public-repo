@@ -7,12 +7,13 @@ import datetime
 import json
 import os
 
-from analysis import run_all
+from analysis import run_all, validate_draws
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DRAWS_PATH = os.path.join(BASE_DIR, "data", "draws.json")
 STATS_PATH = os.path.join(BASE_DIR, "data", "stats.json")
 SOURCE_URL = "https://lottery.timetable.tw/api/draws?gameTypeId=10 (台灣彩券公開開獎資料)"
+RECENT_DRAWS_LIMIT = 100  # 開獎歷史列表最多顯示幾期（避免頁面隨資料量無限變大）
 
 
 def main():
@@ -24,6 +25,10 @@ def main():
     out["source"] = SOURCE_URL
     dates = sorted({d["date"] for d in raw if d.get("date")})
     out["data_since"] = dates[0] if dates else None
+
+    # 給前端「開獎歷史紀錄」列表用：最近 N 期，新到舊排序。
+    valid, _rejected = validate_draws(raw)
+    out["recent_draws"] = list(reversed(valid[-RECENT_DRAWS_LIMIT:]))
 
     with open(STATS_PATH, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False)
