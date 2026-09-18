@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>賓果分析台</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --surface-page:#f9f9f7; --surface-card:#fcfcfb; --surface-card-2:#f3f2ee;
+    --ink-primary:#0b0b0b; --ink-secondary:#52514e; --ink-muted:#898781;
+    --hairline:#e1e0d9; --border:rgba(11,11,11,0.10);
+    --accent:#2a78d6;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
+    --good:#0ca30c; --warning:#fab219; --critical:#d03b3b;
+    --seq-100:#cde2fb; --seq-200:#9ec5f4; --seq-300:#6da7ec; --seq-400:#3987e5; --seq-500:#256abf; --seq-600:#184f95; --seq-700:#0d366b;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --surface-page:#0d0d0d; --surface-card:#1a1a19; --surface-card-2:#232322;
+      --ink-primary:#ffffff; --ink-secondary:#c3c2b7; --ink-muted:#898781;
+      --hairline:#2c2c2a; --border:rgba(255,255,255,0.10);
+      --accent:#3987e5;
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+      --good:#0ca30c; --warning:#fab219; --critical:#e66767;
+      --seq-100:#12233a; --seq-200:#153055; --seq-300:#184072; --seq-400:#1c5cab; --seq-500:#2a78d6; --seq-600:#3987e5; --seq-700:#6da7ec;
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --surface-page:#0d0d0d; --surface-card:#1a1a19; --surface-card-2:#232322;
+    --ink-primary:#ffffff; --ink-secondary:#c3c2b7; --ink-muted:#898781;
+    --hairline:#2c2c2a; --border:rgba(255,255,255,0.10);
+    --accent:#3987e5;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+    --good:#0ca30c; --warning:#fab219; --critical:#e66767;
+    --seq-100:#12233a; --seq-200:#153055; --seq-300:#184072; --seq-400:#1c5cab; --seq-500:#2a78d6; --seq-600:#3987e5; --seq-700:#6da7ec;
+    color-scheme:dark;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--surface-page); color:var(--ink-primary);
+    font-family:"Noto Sans TC","Segoe UI",system-ui,-apple-system,sans-serif;
+    padding:0 16px; padding-block:0;
+    max-width:880px; margin:0 auto;
+  }
+  .mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+
+  header.top{
+    position:sticky; top:env(safe-area-inset-top,0px); z-index:10;
+    background:var(--surface-page); border-bottom:1px solid var(--hairline);
+    padding:14px 0 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;
+  }
+  header.top h1{font-size:17px; font-weight:900; margin:0; letter-spacing:-.01em;}
+  .status-pill{
+    display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-secondary);
+    border:1px solid var(--hairline); border-radius:99px; padding:5px 10px; background:var(--surface-card); white-space:nowrap;
+  }
+  .status-dot{width:6px;height:6px;border-radius:50%; background:var(--ink-muted);}
+  .status-dot.live{background:var(--good);}
+
+  section{margin:22px 0;}
+  .card{
+    background:var(--surface-card); border:1px solid var(--border); border-radius:14px;
+    padding:16px;
+  }
+  h2{font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-muted); font-weight:700; margin:0 0 12px;}
+  h3{font-size:15px; font-weight:700; margin:0 0 4px; text-wrap:balance;}
+  p{line-height:1.6; margin:0;}
+  .muted{color:var(--ink-secondary); font-size:13px; line-height:1.65;}
+
+  /* hero draw */
+  .hero-top{display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
+  .hero-period{font-size:13px; color:var(--ink-secondary);}
+  .hero-period .val{color:var(--ink-primary); font-weight:600;}
+  .ball-row{display:flex; flex-wrap:wrap; gap:7px; align-items:center;}
+  .ball{
+    width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-size:13px; font-weight:600; border:1px solid var(--border); background:var(--surface-card-2); color:var(--ink-primary);
+    flex-shrink:0;
+  }
+  .ball.super{background:var(--critical); color:#fff; border-color:transparent; font-weight:700; box-shadow:0 0 0 3px color-mix(in srgb, var(--critical) 20%, transparent);}
+  .ball.hit{background:var(--good); color:#fff; border-color:transparent;}
+  .divider-label{font-size:11px; color:var(--ink-muted); margin:10px 0 4px;}
+
+  /* disclosure banner */
+  .banner{
+    border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:10px;
+    background:var(--surface-card); padding:14px 16px; display:flex; gap:12px;
+  }
+  .banner .icon{font-size:18px; line-height:1; flex-shrink:0;}
+  .banner .stat-line{display:flex; gap:16px; flex-wrap:wrap; margin-top:8px; font-size:12.5px;}
+  .banner .stat-line .kv{display:flex; flex-direction:column; gap:2px;}
+  .banner .stat-line .kv .k{color:var(--ink-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.04em;}
+  .banner .stat-line .kv .v{font-weight:600;}
+
+  /* heatmap */
+  .heatmap-wrap{overflow-x:auto;}
+  .heatmap{display:grid; grid-template-columns:repeat(10, 1fr); gap:5px; min-width:340px;}
+  .cell{
+    aspect-ratio:1; border-radius:7px; display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:600; color:var(--ink-primary); position:relative; cursor:default;
+    border:1px solid var(--border);
+  }
+  .cell[data-lvl="0"]{background:var(--surface-card-2); color:var(--ink-muted);}
+  .cell[data-lvl="1"]{background:var(--seq-100);}
+  .cell[data-lvl="2"]{background:var(--seq-200);}
+  .cell[data-lvl="3"]{background:var(--seq-300); color:#fff;}
+  .cell[data-lvl="4"]{background:var(--seq-400); color:#fff;}
+  .cell[data-lvl="5"]{background:var(--seq-500); color:#fff;}
+  .cell[data-lvl="6"]{background:var(--seq-600); color:#fff;}
+  .cell[data-lvl="7"]{background:var(--seq-700); color:#fff;}
+  .legend{display:flex; align-items:center; gap:6px; margin-top:10px; font-size:11px; color:var(--ink-muted);}
+  .legend .swatch{width:14px; height:14px; border-radius:4px; border:1px solid var(--border);}
+
+  /* star-count control */
+  .methods-head{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
+  .methods-head h2{margin:0;}
+  .star-picker{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--ink-secondary);}
+  .star-picker select{
+    font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:13px; font-weight:600; color:var(--ink-primary);
+    background:var(--surface-card); border:1px solid var(--border); border-radius:8px; padding:5px 9px;
+  }
+
+  /* consensus (highlight) card */
+  .consensus-card{
+    border:1.5px solid var(--accent); border-radius:14px; background:var(--surface-card);
+    padding:16px; margin-bottom:14px;
+  }
+  .consensus-card .field-tag{border-color:var(--accent); color:var(--accent);}
+  .consensus-card .chip{width:32px; height:32px; font-size:13px;}
+
+  /* method grid */
+  .method-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:12px;}
+  .field-tag{
+    display:inline-block; font-size:10.5px; padding:2px 8px; border-radius:99px; margin-bottom:8px;
+    border:1px solid var(--border); color:var(--ink-secondary); background:var(--surface-card-2);
+  }
+  .chip-row{display:flex; flex-wrap:wrap; gap:5px; margin-top:8px;}
+  .chip{
+    position:relative; min-width:26px; height:26px; padding:0 6px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:700; color:#fff;
+  }
+  .chip .agree-badge{
+    position:absolute; top:-6px; right:-6px; min-width:14px; height:14px; padding:0 3px; border-radius:99px;
+    background:var(--surface-page); color:var(--ink-secondary); border:1px solid var(--border);
+    font-size:8.5px; font-weight:700; display:flex; align-items:center; justify-content:center; line-height:1;
+  }
+  .method-note{font-size:12px; color:var(--ink-secondary); margin-top:9px; line-height:1.55;}
+
+  /* hit check table */
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th{text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-muted); font-weight:600; padding:0 8px 8px 0; border-bottom:1px solid var(--hairline);}
+  td{padding:9px 8px 9px 0; border-bottom:1px solid var(--hairline); vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+  .hit-count{font-weight:700;}
+
+  /* backtest bars */
+  .bt-row{display:grid; grid-template-columns:130px 1fr 46px; align-items:center; gap:10px; margin:10px 0;}
+  .bt-label{font-size:12.5px; color:var(--ink-secondary);}
+  .bt-track{position:relative; height:20px; background:var(--surface-card-2); border-radius:6px; overflow:visible;}
+  .bt-fill{position:absolute; left:0; top:0; bottom:0; border-radius:6px;}
+  .bt-baseline{position:absolute; top:-4px; bottom:-4px; width:2px; background:var(--ink-primary); opacity:.55;}
+  .bt-val{font-size:12px; font-weight:700; text-align:right;}
+
+  .empty-note{font-size:13px; color:var(--ink-secondary); padding:10px 0;}
+
+  footer{margin:26px 0 32px; padding-top:16px; border-top:1px solid var(--hairline);}
+  footer p{margin-bottom:8px;}
+  footer .src a{color:var(--ink-secondary);}
+  .warn-box{
+    margin-top:12px; border:1px solid var(--border); border-left:3px solid var(--warning); border-radius:8px;
+    padding:10px 12px; font-size:12px; color:var(--ink-secondary); line-height:1.6;
+  }
+
+  @media (max-width:420px){
+    .heatmap{grid-template-columns:repeat(8,1fr);}
+    .method-grid{grid-template-columns:1fr 1fr;}
+    .bt-row{grid-template-columns:90px 1fr 40px;}
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>賓果分析台 <span class="mono" style="font-weight:400;font-size:12px;color:var(--ink-muted);">BINGO BINGO</span></h1>
+  <span class="status-pill"><span class="status-dot" id="live-dot"></span><span id="live-label">讀取中…</span></span>
+</header>
+
+<section id="hero" class="card">
+  <div class="hero-top">
+    <h2 style="margin:0;">本期開獎</h2>
+    <div class="hero-period">期別 <span class="val mono" id="hero-period">—</span> · <span id="hero-time">—</span></div>
+  </div>
+  <div class="ball-row" id="hero-balls"></div>
+  <div class="divider-label">超級獎號</div>
+  <div class="ball-row" id="hero-super"></div>
+</section>
+
+<section id="disclosure">
+  <div class="banner">
+    <div class="icon">△</div>
+    <div>
+      <h3>先說結論：沒有公式能預測下一期</h3>
+      <p class="muted">BINGO BINGO 每期由電腦亂數從 01–80 中抽出 20 個號碼，且每期完全獨立，不受任何歷史資料影響。機率論、統計學、精算學、代數、幾何、賽局理論——沒有一種數學方法能讓「下一期」的命中率超越均勻亂猜。下面所有方法都會用真實歷史資料回測命中率，讓你親眼確認這件事。</p>
+      <div class="stat-line">
+        <div class="kv"><span class="k">卡方均勻性檢定</span><span class="v" id="chi-verdict">—</span></div>
+        <div class="kv"><span class="k">P 值</span><span class="v mono" id="chi-p">—</span></div>
+        <div class="kv"><span class="k">累積期數</span><span class="v mono" id="sample-size">—</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="heatmap-section">
+  <h2>全號碼熱力圖（01–80 出現次數）</h2>
+  <div class="card">
+    <div class="heatmap-wrap"><div class="heatmap" id="heatmap"></div></div>
+    <div class="legend">
+      <span>出現次數：</span>
+      <span class="swatch" style="background:var(--surface-card-2)"></span><span>少</span>
+      <span class="swatch" style="background:var(--seq-300)"></span>
+      <span class="swatch" style="background:var(--seq-500)"></span>
+      <span class="swatch" style="background:var(--seq-700)"></span><span>多</span>
+    </div>
+  </div>
+</section>
+
+<section id="methods">
+  <div class="methods-head">
+    <h2>各方法・下一期建議號碼</h2>
+    <label class="star-picker">選星數
+      <select id="star-select" aria-label="選擇星數（顯示前 N 個建議號碼）">
+        <option value="1">1星</option>
+        <option value="2">2星</option>
+        <option value="3">3星</option>
+        <option value="4">4星</option>
+        <option value="5">5星</option>
+        <option value="6">6星</option>
+        <option value="7">7星</option>
+        <option value="8">8星</option>
+        <option value="9">9星</option>
+        <option value="10" selected>10星</option>
+      </select>
+    </label>
+  </div>
+  <div class="consensus-card" id="consensus-card"></div>
+  <div class="method-grid" id="method-grid"></div>
+</section>
+
+<section id="hitcheck">
+  <h2>上一期命中檢查</h2>
+  <div class="card">
+    <table id="hit-table">
+      <thead><tr><th>方法</th><th>建議號碼</th><th>命中</th><th>數</th></tr></thead>
+      <tbody id="hit-tbody"></tbody>
+    </table>
+  </div>
+</section>
+
+<section id="backtest">
+  <h2>歷史回測：平均命中數 vs 亂猜基準線</h2>
+  <div class="card" id="backtest-card"></div>
+</section>
+
+<footer>
+  <p class="muted">資料來源：lottery.timetable.tw 提供的台灣彩券公開開獎資料 API（結構化 JSON，非網頁擷取轉錄）。由 GitHub Actions 排程每 15 分鐘自動抓取一次最新開獎並累積存檔，<b>不是即時 5 分鐘更新</b>；擷取過程仍會經過本頁統計程式的結構驗證（號碼範圍、去重、超級獎號比對）。</p>
+  <p class="muted src">資料 API：<a href="https://lottery.timetable.tw/developers" target="_blank" rel="noopener">lottery.timetable.tw</a></p>
+  <div class="warn-box">
+    本頁面所有「建議號碼」僅為統計方法的回測比較展示，<b>不構成任何形式的中獎預測或投注建議</b>。BINGO BINGO 及所有彩券遊戲的獎金結構皆為負期望值（莊家抽成），長期投注在數學上必然虧損。請量力而為，理性消費。
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  var METHOD_META = {
+    frequency:    {label:"頻率法（熱門號）", field:"統計學",              color:"var(--s1)", key:"frequency"},
+    gap_due:      {label:"遺漏值法（該出理論）", field:"機率論・幾何分布", color:"var(--s2)", key:"gap_due"},
+    bayesian:     {label:"貝氏後驗機率法", field:"機率論・精算學",        color:"var(--s3)", key:"bayesian"},
+    cooccurrence: {label:"共現矩陣法",     field:"代數・矩陣統計",        color:"var(--s4)", key:"cooccurrence"}
+  };
+  var CONSENSUS_META = {label:"綜合建議（多方法整合）", field:"跨方法排名整合", color:"var(--s5)", key:"consensus"};
+  var HITCHECK_ORDER = ["consensus","frequency","gap_due","bayesian","cooccurrence"];
+  var currentStar = 10;
+  var lastState = null;
+
+  function el(tag, cls, html){
+    var e = document.createElement(tag);
+    if(cls) e.className = cls;
+    if(html !== undefined) e.innerHTML = html;
+    return e;
+  }
+
+  function heatLevel(count, maxCount){
+    if(!maxCount || maxCount <= 0) return 0;
+    var ratio = count / maxCount;
+    return Math.max(0, Math.min(7, Math.round(ratio * 7)));
+  }
+
+  function render(state){
+    if(!state) return;
+    lastState = state;
+
+    // sample size / chi-square banner
+    var chi = (state.methods && state.methods.chi_square) || {};
+    document.getElementById("chi-verdict").textContent = chi.verdict || "資料累積中";
+    document.getElementById("chi-p").textContent = (chi.p_value === undefined || chi.p_value === null) ? "—" : chi.p_value;
+    document.getElementById("sample-size").textContent = (state.generated_from_rounds || 0) + " 期";
+
+    // hero draw
+    var latest = state.latest_draw;
+    var heroBalls = document.getElementById("hero-balls");
+    var heroSuper = document.getElementById("hero-super");
+    heroBalls.innerHTML = ""; heroSuper.innerHTML = "";
+    if(latest){
+      document.getElementById("hero-period").textContent = latest.period;
+      document.getElementById("hero-time").textContent = (latest.date || "") + " " + (latest.time || "");
+      (latest.numbers || []).slice().sort(function(a,b){return a-b;}).forEach(function(n){
+        var b = el("div","ball mono", String(n).padStart(2,"0"));
+        if(n === latest.superNumber) b.classList.add("super");
+        heroBalls.appendChild(b);
+      });
+      var sb = el("div","ball super mono", String(latest.superNumber || "—").padStart(2,"0"));
+      heroSuper.appendChild(sb);
+    }
+
+    // heatmap
+    var freq = (state.methods && state.methods.frequency) || {};
+    var counts = freq.counts || {};
+    var maxCount = 0;
+    for(var i=1;i<=80;i++){ var c = counts[i] || counts[String(i)] || 0; if(c > maxCount) maxCount = c; }
+    var hm = document.getElementById("heatmap");
+    hm.innerHTML = "";
+    for(var n=1;n<=80;n++){
+      var cnt = counts[n] || counts[String(n)] || 0;
+      var cell = el("div","cell mono", String(n).padStart(2,"0"));
+      cell.setAttribute("data-lvl", heatLevel(cnt, maxCount));
+      cell.title = "號碼 " + n + "：出現 " + cnt + " 次";
+      hm.appendChild(cell);
+    }
+
+    // consensus card (highlighted, above the per-method grid)
+    var m = state.methods || {};
+    var consensusEl = document.getElementById("consensus-card");
+    consensusEl.innerHTML = "";
+    var cdata = m.consensus;
+    if(cdata){
+      consensusEl.appendChild(el("span","field-tag", CONSENSUS_META.field));
+      consensusEl.appendChild(el("h3", null, "綜合建議 Top " + currentStar));
+      var cchips = el("div","chip-row");
+      (cdata.suggested || []).slice(0, currentStar).forEach(function(num){
+        var chip = el("div","chip mono", String(num).padStart(2,"0"));
+        chip.style.background = CONSENSUS_META.color;
+        var agree = cdata.agreement && cdata.agreement[num] !== undefined ? cdata.agreement[num] : (cdata.agreement && cdata.agreement[String(num)]);
+        if(agree !== undefined){
+          var badge = el("span","agree-badge", agree + "/4");
+          chip.appendChild(badge);
+        }
+        cchips.appendChild(chip);
+      });
+      consensusEl.appendChild(cchips);
+      if(cdata.note) consensusEl.appendChild(el("div","method-note", cdata.note));
+    }
+
+    // method cards
+    var grid = document.getElementById("method-grid");
+    grid.innerHTML = "";
+
+    Object.keys(METHOD_META).forEach(function(key){
+      var meta = METHOD_META[key];
+      var data = m[key] || {};
+      var card = el("div","card");
+      card.appendChild(el("span","field-tag", meta.field));
+      card.appendChild(el("h3", null, meta.label));
+      var chips = el("div","chip-row");
+      (data.suggested || []).slice(0, currentStar).forEach(function(num){
+        var chip = el("div","chip mono", String(num).padStart(2,"0"));
+        chip.style.background = meta.color;
+        chips.appendChild(chip);
+      });
+      card.appendChild(chips);
+      if(data.note) card.appendChild(el("div","method-note", data.note));
+      grid.appendChild(card);
+    });
+
+    // informational (non-selection) methods
+    var infoDefs = [
+      {key:"monte_carlo", field:"電腦模擬・空間幾何"},
+      {key:"combinatorial_coverage", field:"賽局理論・組合數學"}
+    ];
+    infoDefs.forEach(function(d){
+      var data = m[d.key]; if(!data) return;
+      var card = el("div","card");
+      card.appendChild(el("span","field-tag", d.field));
+      card.appendChild(el("h3", null, data.name || d.key));
+      if(data.note) card.appendChild(el("div","method-note", data.note));
+      grid.appendChild(card);
+    });
+
+    // last round hit check
+    var tbody = document.getElementById("hit-tbody");
+    tbody.innerHTML = "";
+    var hitCheck = state.last_round_hit_check;
+    if(hitCheck){
+      HITCHECK_ORDER.forEach(function(key){
+        var row = hitCheck[key]; if(!row) return;
+        var meta = key === "consensus" ? CONSENSUS_META : METHOD_META[key];
+        var sliced = (row.suggested || []).slice(0, currentStar);
+        var slicedHits = (row.hits || []).filter(function(n){ return sliced.indexOf(n) > -1; });
+        var tr = el("tr");
+        tr.appendChild(el("td", null, meta.label));
+        var sugTd = el("td");
+        var sugRow = el("div","chip-row");
+        sliced.forEach(function(n){
+          var chip = el("div","chip mono", String(n).padStart(2,"0"));
+          chip.style.background = slicedHits.indexOf(n) > -1 ? "var(--good)" : "var(--ink-muted)";
+          chip.style.opacity = slicedHits.indexOf(n) > -1 ? "1" : ".55";
+          sugRow.appendChild(chip);
+        });
+        sugTd.appendChild(sugRow);
+        tr.appendChild(sugTd);
+        var hitTd = el("td");
+        var hitRow = el("div","chip-row");
+        slicedHits.forEach(function(n){
+          var chip = el("div","chip mono", String(n).padStart(2,"0"));
+          chip.style.background = "var(--good)";
+          hitRow.appendChild(chip);
+        });
+        hitTd.appendChild(hitRow);
+        tr.appendChild(hitTd);
+        tr.appendChild(el("td","hit-count", slicedHits.length + " / " + sliced.length));
+        tbody.appendChild(tr);
+      });
+    }
+
+    // backtest
+    var btCard = document.getElementById("backtest-card");
+    btCard.innerHTML = "";
+    var bt = state.backtest || {};
+    if(!bt.results || Object.keys(bt.results).length === 0){
+      btCard.appendChild(el("div","empty-note", bt.note || "資料累積中，尚無法回測。"));
+    } else {
+      var baseline = bt.baseline_expected_hits || 0;
+      var maxVal = baseline;
+      Object.keys(bt.results).forEach(function(k){ maxVal = Math.max(maxVal, bt.results[k].avg_hits_per_round); });
+      maxVal = maxVal * 1.25;
+
+      var allMeta = Object.assign({}, METHOD_META, {consensus: CONSENSUS_META});
+      HITCHECK_ORDER.map(function(k){return allMeta[k].label;}).forEach(function(label){
+        var r = bt.results[label]; if(!r) return;
+        var row = el("div","bt-row");
+        row.appendChild(el("div","bt-label", label));
+        var track = el("div","bt-track");
+        var fill = el("div","bt-fill");
+        fill.style.width = Math.max(2,(r.avg_hits_per_round / maxVal * 100)) + "%";
+        var colorKey = Object.keys(allMeta).find(function(k){return allMeta[k].label === label;});
+        fill.style.background = colorKey ? allMeta[colorKey].color : "var(--accent)";
+        track.appendChild(fill);
+        var baseMark = el("div","bt-baseline");
+        baseMark.style.left = (baseline / maxVal * 100) + "%";
+        track.appendChild(baseMark);
+        row.appendChild(track);
+        row.appendChild(el("div","bt-val mono", r.avg_hits_per_round.toFixed(2)));
+        btCard.appendChild(row);
+      });
+      var capNote = el("div","method-note", "黑色直線 = 純亂猜理論期望命中數（" + baseline.toFixed(2) + "）。已測 " + (bt.rounds_tested||0) + " 期，取樣視窗 top " + (bt.top_k||10) + " 號。" + (bt.note || ""));
+      btCard.appendChild(capNote);
+    }
+  }
+
+  var starSelect = document.getElementById("star-select");
+  if(starSelect){
+    currentStar = parseInt(starSelect.value, 10) || 10;
+    starSelect.addEventListener("change", function(){
+      currentStar = parseInt(starSelect.value, 10) || 10;
+      if(lastState) render(lastState);
+    });
+  }
+
+  var liveDot = document.getElementById("live-dot");
+  var liveLabel = document.getElementById("live-label");
+  liveLabel.textContent = "載入中…";
+
+  // 靜態頁面沒有伺服器推播，改成定期重新抓取 GitHub Actions 寫回的 data/stats.json。
+  // 檔案本身由排程每 15 分鐘更新一次，這裡每 5 分鐘重新 fetch 一次即可跟上。
+  var STATS_URL = "./data/stats.json";
+  var pollTimer = null;
+
+  function fetchStats(isFirstLoad){
+    fetch(STATS_URL + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function(resp){
+        if(!resp.ok) throw new Error("HTTP " + resp.status);
+        return resp.json();
+      })
+      .then(function(data){
+        render(data);
+        liveDot.classList.add("live");
+        var when = data && data.updated_at ? new Date(data.updated_at).toLocaleString("zh-TW") : "";
+        liveLabel.textContent = "已載入 · 每 15 分鐘自動更新" + (when ? "（資料時間 " + when + "）" : "");
+      })
+      .catch(function(err){
+        if(isFirstLoad){
+          liveLabel.textContent = "尚未抓到資料（第一次執行前，或 GitHub Pages 剛部署，請稍後重整）";
+        } else {
+          liveLabel.textContent = "本次重新整理失敗，顯示上一次的資料";
+        }
+      });
+  }
+
+  fetchStats(true);
+  pollTimer = setInterval(function(){ fetchStats(false); }, 5 * 60 * 1000);
+  document.addEventListener("visibilitychange", function(){
+    if(document.visibilityState === "visible") fetchStats(false);
+  });
+})();
+</script>
+</body>
+</html>
