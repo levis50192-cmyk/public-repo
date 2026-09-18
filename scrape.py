@@ -44,18 +44,23 @@ def fetch_latest():
             f"回應不是合法 JSON（HTTP {status}）：{raw_text[:300]!r}"
         ) from e
 
-    # 相容 API 直接回傳陣列，或包在 {"data": [...]} 裡兩種格式；
-    # 如果是其他形狀（例如錯誤訊息物件 {"error": "..."}），明確報錯，
-    # 不要誤把它當成資料列（之前的 bug：對字典 fallback 到自己，
-    # 結果對字典做 for 迴圈會拿到 key 字串，導致 'str' object has no
-    # attribute 'get'）。
+    # 相容 API 直接回傳陣列，或包在 {"records": [...]}／{"data": [...]}
+    # 等常見包法；如果是其他形狀（例如錯誤訊息物件 {"error": "..."}），
+    # 明確報錯，不要誤把它當成資料列（之前的 bug：對字典 fallback 到
+    # 自己，結果對字典做 for 迴圈會拿到 key 字串，導致 'str' object
+    # has no attribute 'get'）。目前已確認 lottery.timetable.tw 實際
+    # 是用 "records" 這個欄位包資料。
+    records = None
     if isinstance(payload, list):
         records = payload
-    elif isinstance(payload, dict) and isinstance(payload.get("data"), list):
-        records = payload["data"]
-    else:
+    elif isinstance(payload, dict):
+        for key in ("records", "data", "draws", "results", "items"):
+            if isinstance(payload.get(key), list):
+                records = payload[key]
+                break
+    if records is None:
         raise RuntimeError(
-            f"回應格式不是預期的陣列或 {{'data': [...]}}（HTTP {status}）："
+            f"回應格式不是預期的陣列或已知的包裝格式（HTTP {status}）："
             f"{raw_text[:300]!r}"
         )
 
