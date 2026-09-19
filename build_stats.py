@@ -36,6 +36,22 @@ def main():
     for d in recent:
         d["suggested_hits"] = hits_by_period.get(d["period"], [])
 
+    # 誠實標示資料源本身的期別缺漏：上游第三方 API（lottery.timetable.tw）
+    # 偶爾會整批漏掉幾期資料（實測發現是它自己同步時弄丟的，官方彩券網站本身
+    # 沒有缺），不是我們抓取程式的 bug。這裡不隱藏、也不假裝補上這些期別，
+    # 而是在清單上明確標出「這裡缺了幾期」，讓使用者一看就知道是已知的資料源
+    # 限制，不是網站壞掉。下方統計/回測引擎本來就是照清單順序逐期比對，
+    # 不依賴期別數字連續，所以這些缺漏不影響命中率計算的正確性。
+    for i in range(1, len(recent)):
+        try:
+            prev_p = int(recent[i - 1]["period"])
+            cur_p = int(recent[i]["period"])
+        except (TypeError, ValueError):
+            continue
+        gap = cur_p - prev_p - 1
+        if gap > 0:
+            recent[i]["gap_before"] = gap
+
     out["recent_draws"] = list(reversed(recent))
 
     with open(STATS_PATH, "w", encoding="utf-8") as f:

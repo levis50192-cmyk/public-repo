@@ -149,6 +149,12 @@
   .history-legend .lg-dot.hit{background:var(--good);}
   .history-legend .lg-dot.super{background:var(--critical);}
   .history-legend .lg-dot.plain{background:var(--surface-card-2); border:1px solid var(--border, rgba(120,120,120,.3));}
+  .gap-row td{
+    text-align:center; font-size:12px; color:var(--warning);
+    background:color-mix(in srgb, var(--warning) 12%, transparent);
+    padding:6px 8px; border-top:1px dashed color-mix(in srgb, var(--warning) 45%, transparent);
+    border-bottom:1px dashed color-mix(in srgb, var(--warning) 45%, transparent);
+  }
 
   /* star-count control */
   .methods-head{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
@@ -256,6 +262,7 @@
     <div class="history-legend">
       <span class="lg-item"><span class="lg-dot hit"></span>當時「綜合建議」也有列出、且真的開出來的號碼</span>
       <span class="lg-item"><span class="lg-dot plain"></span>一般開出號碼（BINGO BINGO 沒有超級獎號機制）</span>
+      <span class="lg-item">⚠️ 跳期提示＝資料來源（第三方公開 API）自己漏同步了幾期，不是本站程式錯誤</span>
     </div>
     <div class="history-wrap">
       <table id="history-table">
@@ -396,6 +403,18 @@
         tdNums.appendChild(wrap);
         tr.appendChild(tdNums);
         historyBody.appendChild(tr);
+        // 誠實標示資料源本身漏掉的期數：不是本站程式漏抓，是上游第三方 API
+        // 自己同步時弄丟的（官方彩券網站沒有缺）。清楚標出來，不要讓使用者
+        // 誤以為網站壞了；下方所有統計/回測數字不受這個缺漏影響。
+        if(d.gap_before){
+          var gapTr = document.createElement("tr");
+          gapTr.className = "gap-row";
+          var gapTd = document.createElement("td");
+          gapTd.colSpan = 3;
+          gapTd.textContent = "⚠️ 資料來源缺漏 " + d.gap_before + " 期（第三方 API 自己漏同步，非本站問題，不影響下方命中率統計）";
+          gapTr.appendChild(gapTd);
+          historyBody.appendChild(gapTr);
+        }
       });
     }
 
