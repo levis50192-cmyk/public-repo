@@ -29,6 +29,7 @@ draws.json 格式：
 import sys
 import json
 import math
+import random
 from collections import defaultdict, Counter
 from itertools import combinations
 
@@ -302,7 +303,10 @@ def method_consensus(draws, top_k=10):
 
 
 # ----------------------------------------------------------------------
-# 方法 6：蒙地卡羅模擬（空間幾何 / 電腦模擬統計）
+# 方法 6：蒙地卡羅模擬（電腦模擬統計）
+# 誠實更正：這個方法之前被標成「空間幾何統計」其實不準確——它做的事情是電腦隨機抽樣模擬，
+# 跟空間幾何沒有關係。現在專案裡已經加了真正的空間幾何方法（方法 8：Moran's I 空間自相關），
+# 這裡的標籤改回誠實、準確的「電腦模擬統計」。
 # ----------------------------------------------------------------------
 
 def method_monte_carlo(draws, n_sim=2000, seed=42):
@@ -330,7 +334,7 @@ def method_monte_carlo(draws, n_sim=2000, seed=42):
 
     return {
         "name": "蒙地卡羅模擬對照",
-        "field": "電腦模擬 / 空間幾何統計",
+        "field": "電腦模擬統計",
         "n_sim": n_sim,
         "real_max_count": real_max,
         "sim_percentile_of_real_max": round(percentile, 1),
@@ -378,6 +382,217 @@ def method_combinatorial_coverage(pool_size=10):
 
 
 # ----------------------------------------------------------------------
+# 方法 8：空間自相關（Moran's I）——真正的空間幾何學／空間統計方法
+# ----------------------------------------------------------------------
+#
+# 誠實聲明：BINGO BINGO 開獎本身沒有任何「空間」概念，01~80 只是隨機不放回抽出的
+# 標籤數字。這裡把號碼依「賓果賓果選號盤常見的 10 欄 × 8 列排列方式」放到平面座標上，
+# 純粹是為了套用真正的空間統計方法（Moran's I 空間自相關指數）而做的畫圖／統計慣例，
+# 不代表開獎機制認得這個排列。如果 Moran's I 顯示「沒有空間聚集」，那才是誠實、
+# 符合預期的結果——這正是這個方法存在的意義：用真正的空間幾何工具，驗證「盤面排列」
+# 跟「開獎結果」沒有關係。
+
+GRID_COLS = 10
+GRID_ROWS = 8  # 10 x 8 = 80，賓果賓果選號盤常見排列（僅為統計方法用的座標慣例）
+
+
+def _grid_pos(n):
+    idx = n - 1
+    return idx // GRID_COLS, idx % GRID_COLS
+
+
+def _grid_neighbors(n):
+    r, c = _grid_pos(n)
+    out = []
+    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):  # rook 相鄰（上下左右）
+        rr, cc = r + dr, c + dc
+        if 0 <= rr < GRID_ROWS and 0 <= cc < GRID_COLS:
+            out.append(rr * GRID_COLS + cc + 1)
+    return out
+
+
+_GRID_NEIGHBORS = {n: _grid_neighbors(n) for n in range(1, TOTAL_NUMBERS + 1)}
+_GRID_EDGES = sorted({
+    tuple(sorted((n, nb)))
+    for n in range(1, TOTAL_NUMBERS + 1)
+    for nb in _GRID_NEIGHBORS[n]
+})
+
+
+def _moran_i(dev):
+    """dev：{號碼: 該號碼出現次數 - 平均值}。回傳 Moran's I。"""
+    denom = sum(v * v for v in dev.values())
+    if denom == 0:
+        return 0.0
+    num = 0.0
+    for a, b in _GRID_EDGES:
+        num += 2 * dev[a] * dev[b]
+    w_sum = 2 * len(_GRID_EDGES)
+    if w_sum == 0:
+        return 0.0
+    return (TOTAL_NUMBERS / w_sum) * (num / denom)
+
+
+def method_spatial_autocorrelation(draws, top_k=10, window=None, n_perm=200, seed=99):
+    sample = draws[-window:] if window else draws
+    if not sample:
+        return {
+            "name": "空間自相關法（Moran's I）",
+            "field": "空間幾何學 / 空間統計學",
+            "note": "資料不足，無法計算。",
+        }
+    counts = Counter()
+    for d in sample:
+        counts.update(d["numbers"])
+    x = {n: counts.get(n, 0) for n in range(1, TOTAL_NUMBERS + 1)}
+    xbar = sum(x.values()) / TOTAL_NUMBERS
+    dev = {n: x[n] - xbar for n in x}
+    observed_i = _moran_i(dev)
+
+    # 排列檢定（permutation test）：把出現次數隨機打散重新分配到盤面座標上 n_perm 次，
+    # 算出「完全隨機排列」下 Moran's I 的分布，看真實觀測值落在哪個百分位——
+    # 這跟這個工具其他地方已經在用的蒙地卡羅檢定思路一致，只是用在空間統計上。
+    rng = random.Random(seed)
+    vals = list(x.values())
+    keys = list(x.keys())
+    more_extreme = 0
+    for _ in range(n_perm):
+        shuffled = vals[:]
+        rng.shuffle(shuffled)
+        perm_dev = {k: v - xbar for k, v in zip(keys, shuffled)}
+        if abs(_moran_i(perm_dev)) >= abs(observed_i):
+            more_extreme += 1
+    p_value = (more_extreme + 1) / (n_perm + 1)
+    expected_i = -1 / (TOTAL_NUMBERS - 1)  # CSR（完全空間隨機）下 Moran's I 的理論期望值
+
+    # 熱點分數：自己的出現次數跟盤面上相鄰號碼平均出現次數各半，這是 Moran's I
+    # 公式本身用到的「空間滯後（spatial lag）」概念，不是另外發明的排名方式。
+    lag = {}
+    for n in range(1, TOTAL_NUMBERS + 1):
+        nbs = _GRID_NEIGHBORS[n]
+        lag[n] = (sum(x[m] for m in nbs) / len(nbs)) if nbs else x[n]
+    score = {n: 0.5 * x[n] + 0.5 * lag[n] for n in range(1, TOTAL_NUMBERS + 1)}
+    ranked = sorted(score.items(), key=lambda kv: (-kv[1], kv[0]))
+    suggested = [n for n, _ in ranked[:top_k]]
+
+    verdict = (
+        "沒有證據顯示熱門號在選號盤上有空間聚集（符合完全隨機的預期）"
+        if p_value > 0.05
+        else "這批樣本的熱門號在選號盤上出現統計上顯著的空間聚集傾向——但這頂多是樣本雜訊，"
+             "不代表任何物理機制，資料增加後很可能消失，請用回測結果驗證"
+    )
+
+    return {
+        "name": "空間自相關法（Moran's I）",
+        "field": "空間幾何學 / 空間統計學",
+        "suggested": suggested,
+        "moran_i": round(observed_i, 4),
+        "expected_i_under_randomness": round(expected_i, 4),
+        "p_value_permutation": round(p_value, 4),
+        "n_permutations": n_perm,
+        "verdict": verdict,
+        "note": (
+            "把 01~80 依賓果賓果選號盤常見的 10欄×8列排列成平面座標，計算 Moran's I 空間自相關指數："
+            "檢定『樣本內出現次數高的號碼，在盤面上是不是剛好也跟其他高次數號碼相鄰』。"
+            "理論上開獎跟盤面排列（一種人為的視覺慣例）完全無關，Moran's I 應該落在 0 附近，"
+            "上面的 p 值是用亂數重新排列 %d 次做排列檢定算出來的。suggested 是『自己出現次數』"
+            "跟『盤面相鄰號碼平均出現次數』各半的空間熱點分數——即使 Moran's I 顯示沒有聚集，"
+            "這裡還是會照樣選出分數最高的號碼，回測會誠實顯示這樣選跟亂猜沒有差異。"
+        ) % n_perm,
+    }
+
+
+# ----------------------------------------------------------------------
+# 方法 9：共現矩陣譜分析（特徵值分解）——真正的線性代數方法
+# ----------------------------------------------------------------------
+#
+# 誠實聲明：原本的「共現矩陣法」（方法 5）雖然標榜代數，實際上只用到矩陣的列總和
+# （等於矩陣乘以全 1 向量），還稱不上真正的線性代數工具。這裡對同一個共現矩陣做
+# 真正的特徵值分解（power iteration + deflation，不依賴 numpy／scipy），找出矩陣
+# 最主要的「結構模式」（特徵向量），這才是矩陣代數／譜分析的核心技術。
+
+def _matvec(mat, v, n):
+    return [sum(mat[i][j] * v[j] for j in range(n)) for i in range(n)]
+
+
+def _vnorm(v):
+    return math.sqrt(sum(x * x for x in v))
+
+
+def _power_iteration(mat, n, iters=30, seed=0):
+    """對稱矩陣的冪法（power iteration）：回傳（最大特徵值, 對應特徵向量）。"""
+    rng = random.Random(seed)
+    v = [rng.uniform(-1, 1) for _ in range(n)]
+    norm = _vnorm(v) or 1.0
+    v = [x / norm for x in v]
+    for _ in range(iters):
+        v2 = _matvec(mat, v, n)
+        norm = _vnorm(v2)
+        if norm < 1e-12:
+            break
+        v = [x / norm for x in v2]
+    av = _matvec(mat, v, n)
+    eigenvalue = sum(v[i] * av[i] for i in range(n))
+    return eigenvalue, v
+
+
+def method_spectral(draws, top_k=10, window=None, iters=30):
+    sample = draws[-window:] if window else draws
+    n = TOTAL_NUMBERS
+    total = len(sample)
+    if total == 0:
+        return {
+            "name": "共現矩陣譜分析（特徵值分解）",
+            "field": "代數學（線性代數・矩陣特徵值分解）",
+            "note": "資料不足，無法計算。",
+        }
+
+    counts = Counter()
+    for d in sample:
+        counts.update(d["numbers"])
+    freq = [counts.get(i + 1, 0) for i in range(n)]
+
+    co = _cooccurrence_matrix(sample)
+    # 建立「殘差矩陣」：實際共現次數 - 假設兩號碼各自獨立時的期望共現次數
+    # （期望值用兩者各自出現次數的乘積近似，這跟方法 5 用的期望值同一等級的簡化，
+    # 沒有做完整的超幾何分布校正）。對這個殘差矩陣做特徵分解，才是在找「扣掉
+    # 各自出現機率之後，還剩下什麼結構」，而不是被『誰出現次數多』這件事主導。
+    mat = [[0.0] * n for _ in range(n)]
+    for (a, b), c in co.items():
+        expected = (freq[a - 1] * freq[b - 1]) / total if total else 0.0
+        r = c - expected
+        mat[a - 1][b - 1] = r
+        mat[b - 1][a - 1] = r
+
+    eig1, v1 = _power_iteration(mat, n, iters=iters, seed=1)
+    deflated = [[mat[i][j] - eig1 * v1[i] * v1[j] for j in range(n)] for i in range(n)]
+    eig2, v2 = _power_iteration(deflated, n, iters=iters, seed=2)
+
+    frob_sq = sum(mat[i][j] ** 2 for i in range(n) for j in range(n))
+    explained = ((eig1 ** 2 + eig2 ** 2) / frob_sq) if frob_sq > 0 else None
+
+    score = {i + 1: math.hypot(v1[i], v2[i]) for i in range(n)}
+    ranked = sorted(score.items(), key=lambda kv: (-kv[1], kv[0]))
+    suggested = [num for num, _ in ranked[:top_k]]
+
+    return {
+        "name": "共現矩陣譜分析（特徵值分解）",
+        "field": "代數學（線性代數・矩陣特徵值分解）",
+        "suggested": suggested,
+        "eigenvalue_1": round(eig1, 3),
+        "eigenvalue_2": round(eig2, 3),
+        "explained_variance_ratio_top2": None if explained is None else round(explained, 4),
+        "note": (
+            "對『共現矩陣 - 各自出現次數推算的期望共現矩陣』做真正的特徵值分解（冪法疊代，"
+            "不是矩陣列總和而已），找出殘差矩陣最主要的兩個特徵向量。suggested 是在這兩個"
+            "特徵向量上載荷量最大的號碼——如果真實資料是純隨機獨立抽樣，殘差矩陣理論上不該有"
+            "穩定的主結構，eigenvalue_1／eigenvalue_2 應該接近雜訊水準、explained_variance_ratio_top2"
+            "不該長期偏高。這點一樣要靠下面的回測誠實驗證，不是看公式好聽就代表有效。"
+        ),
+    }
+
+
+# ----------------------------------------------------------------------
 # 回測框架：walk-forward backtest，誠實比較各方法 vs 純亂猜基準線
 # ----------------------------------------------------------------------
 
@@ -412,12 +627,16 @@ def backtest(draws, top_k=10, min_history=20, history_window=200, max_rounds=300
         bayes = method_bayesian(history, top_k=top_k)["suggested"]
         co = method_cooccurrence(history, top_k=top_k)["suggested"]
         consensus = method_consensus(history, top_k=top_k)["suggested"]
+        spatial = method_spatial_autocorrelation(history, top_k=top_k)["suggested"]
+        spectral = method_spectral(history, top_k=top_k)["suggested"]
 
         methods_hits["頻率法（熱門號）"].append(len(set(freq) & actual))
         methods_hits["遺漏值法（該出理論）"].append(len(set(gap) & actual))
         methods_hits["貝氏後驗機率法"].append(len(set(bayes) & actual))
         methods_hits["共現矩陣法"].append(len(set(co) & actual))
         methods_hits["綜合建議（多方法整合）"].append(len(set(consensus) & actual))
+        methods_hits["空間自相關法（Moran's I）"].append(len(set(spatial) & actual))
+        methods_hits["共現矩陣譜分析（特徵值分解）"].append(len(set(spectral) & actual))
 
     baseline_expected = top_k * P_SINGLE
     results = {}
@@ -443,6 +662,33 @@ def backtest(draws, top_k=10, min_history=20, history_window=200, max_rounds=300
     }
 
 
+def recent_suggestion_hits(draws, recent_n=100, top_k=10, min_history=20, history_window=200):
+    """
+    給「開獎歷史紀錄」列表用：針對最近 recent_n 期，每一期都只用『該期之前』
+    的歷史資料（跟 backtest() 同樣的滾動視窗 history_window）重算一次
+    綜合建議號碼，再跟該期實際開出的 20 個號碼比對，回傳
+    {period: [命中的建議號碼...]}（只有命中才會出現在結果裡）。
+
+    這不是新方法，只是把 backtest() 已經在做的「用歷史推薦、跟實際比對」
+    這件事，改成保留每一期的命中明細（而不是只算平均），好讓歷史列表可以
+    直接標示出「這期開出的號碼裡，有哪些剛好也在當時的建議名單上」。
+    """
+    n = len(draws)
+    if n <= min_history:
+        return {}
+    start = max(min_history, n - recent_n)
+    out = {}
+    for t in range(start, n):
+        history_full = draws[:t]
+        history = history_full[-history_window:] if history_window else history_full
+        suggested = set(method_consensus(history, top_k=top_k)["suggested"])
+        actual = set(draws[t]["numbers"])
+        hits = sorted(suggested & actual)
+        if hits:
+            out[draws[t]["period"]] = hits
+    return out
+
+
 # ----------------------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------------------
@@ -463,6 +709,8 @@ def run_all(draws_raw, top_k=10):
             "bayesian": method_bayesian(valid, top_k=top_k),
             "cooccurrence": method_cooccurrence(valid, top_k=top_k),
             "consensus": method_consensus(valid, top_k=top_k),
+            "spatial": method_spatial_autocorrelation(valid, top_k=top_k),
+            "spectral": method_spectral(valid, top_k=top_k),
             "monte_carlo": method_monte_carlo(valid),
             "combinatorial_coverage": method_combinatorial_coverage(),
         },
@@ -480,6 +728,8 @@ def run_all(draws_raw, top_k=10):
             ("bayesian", lambda h: method_bayesian(h, top_k=top_k)["suggested"]),
             ("cooccurrence", lambda h: method_cooccurrence(h, top_k=top_k)["suggested"]),
             ("consensus", lambda h: method_consensus(h, top_k=top_k)["suggested"]),
+            ("spatial", lambda h: method_spatial_autocorrelation(h, top_k=top_k)["suggested"]),
+            ("spectral", lambda h: method_spectral(h, top_k=top_k)["suggested"]),
         ):
             suggested_prev = fn(prev_history)
             hit_check[key] = {

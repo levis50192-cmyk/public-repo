@@ -4,16 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>賓果分析台</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Baloo+2:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
 <style>
   :root{
     --surface-page:#f9f9f7; --surface-card:#fcfcfb; --surface-card-2:#f3f2ee;
     --ink-primary:#0b0b0b; --ink-secondary:#52514e; --ink-muted:#898781;
     --hairline:#e1e0d9; --border:rgba(11,11,11,0.10);
     --accent:#2a78d6;
-    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#8b5cf6; --s7:#0891b2;
     --good:#0ca30c; --warning:#fab219; --critical:#d03b3b;
     --seq-100:#cde2fb; --seq-200:#9ec5f4; --seq-300:#6da7ec; --seq-400:#3987e5; --seq-500:#256abf; --seq-600:#184f95; --seq-700:#0d366b;
+    --font-display:"Baloo 2","Noto Sans TC","Segoe UI",system-ui,sans-serif;
+    --glow-good:0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent), 0 0 14px color-mix(in srgb, var(--good) 55%, transparent);
     color-scheme:light;
   }
   @media (prefers-color-scheme: dark){
@@ -22,7 +24,7 @@
       --ink-primary:#ffffff; --ink-secondary:#c3c2b7; --ink-muted:#898781;
       --hairline:#2c2c2a; --border:rgba(255,255,255,0.10);
       --accent:#3987e5;
-      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#a78bfa; --s7:#22d3ee;
       --good:#0ca30c; --warning:#fab219; --critical:#e66767;
       --seq-100:#12233a; --seq-200:#153055; --seq-300:#184072; --seq-400:#1c5cab; --seq-500:#2a78d6; --seq-600:#3987e5; --seq-700:#6da7ec;
       color-scheme:dark;
@@ -33,7 +35,7 @@
     --ink-primary:#ffffff; --ink-secondary:#c3c2b7; --ink-muted:#898781;
     --hairline:#2c2c2a; --border:rgba(255,255,255,0.10);
     --accent:#3987e5;
-    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#a78bfa; --s7:#22d3ee;
     --good:#0ca30c; --warning:#fab219; --critical:#e66767;
     --seq-100:#12233a; --seq-200:#153055; --seq-300:#184072; --seq-400:#1c5cab; --seq-500:#2a78d6; --seq-600:#3987e5; --seq-700:#6da7ec;
     color-scheme:dark;
@@ -41,7 +43,11 @@
 
   *{box-sizing:border-box;}
   body{
-    background:var(--surface-page); color:var(--ink-primary);
+    background:
+      radial-gradient(760px 380px at 12% -8%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 60%),
+      radial-gradient(620px 340px at 100% 0%, color-mix(in srgb, var(--s5) 10%, transparent), transparent 55%),
+      var(--surface-page);
+    color:var(--ink-primary);
     font-family:"Noto Sans TC","Segoe UI",system-ui,-apple-system,sans-serif;
     padding:0 16px; padding-block:0;
     max-width:880px; margin:0 auto;
@@ -50,24 +56,41 @@
 
   header.top{
     position:sticky; top:env(safe-area-inset-top,0px); z-index:10;
-    background:var(--surface-page); border-bottom:1px solid var(--hairline);
+    background:color-mix(in srgb, var(--surface-page) 88%, transparent); backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--hairline);
     padding:14px 0 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;
   }
-  header.top h1{font-size:17px; font-weight:900; margin:0; letter-spacing:-.01em;}
+  header.top h1{
+    font-family:var(--font-display); font-size:19px; font-weight:800; margin:0; letter-spacing:-.01em;
+    background:linear-gradient(90deg, var(--accent), var(--s5));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
   .status-pill{
     display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-secondary);
     border:1px solid var(--hairline); border-radius:99px; padding:5px 10px; background:var(--surface-card); white-space:nowrap;
   }
-  .status-dot{width:6px;height:6px;border-radius:50%; background:var(--ink-muted);}
-  .status-dot.live{background:var(--good);}
+  .status-dot{width:7px;height:7px;border-radius:50%; background:var(--ink-muted); position:relative;}
+  .status-dot.live{background:var(--good); box-shadow:0 0 0 0 color-mix(in srgb, var(--good) 60%, transparent); animation:pulse-ring 1.8s ease-out infinite;}
+  @keyframes pulse-ring{
+    0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--good) 55%, transparent);}
+    70%{box-shadow:0 0 0 7px color-mix(in srgb, var(--good) 0%, transparent);}
+    100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--good) 0%, transparent);}
+  }
 
   section{margin:22px 0;}
   .card{
-    background:var(--surface-card); border:1px solid var(--border); border-radius:14px;
-    padding:16px;
+    background:var(--surface-card); border:1px solid var(--border); border-radius:18px;
+    padding:16px; box-shadow:0 1px 2px rgba(0,0,0,.04), 0 8px 20px -14px rgba(0,0,0,.35);
   }
-  h2{font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-muted); font-weight:700; margin:0 0 12px;}
-  h3{font-size:15px; font-weight:700; margin:0 0 4px; text-wrap:balance;}
+  h2{
+    display:flex; align-items:center; gap:7px; font-family:var(--font-display);
+    font-size:13px; letter-spacing:.02em; color:var(--accent); font-weight:700; margin:0 0 12px;
+  }
+  h2::before{
+    content:""; width:8px; height:8px; border-radius:3px; flex-shrink:0;
+    background:linear-gradient(135deg, var(--accent), var(--s5));
+  }
+  h3{font-family:var(--font-display); font-size:15.5px; font-weight:700; margin:0 0 4px; text-wrap:balance;}
   p{line-height:1.6; margin:0;}
   .muted{color:var(--ink-secondary); font-size:13px; line-height:1.65;}
 
@@ -75,14 +98,24 @@
   .hero-top{display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
   .hero-period{font-size:13px; color:var(--ink-secondary);}
   .hero-period .val{color:var(--ink-primary); font-weight:600;}
-  .ball-row{display:flex; flex-wrap:wrap; gap:7px; align-items:center;}
+  .ball-row{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
   .ball{
-    width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center;
-    font-size:13px; font-weight:600; border:1px solid var(--border); background:var(--surface-card-2); color:var(--ink-primary);
-    flex-shrink:0;
+    width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display); font-size:13.5px; font-weight:700; border:1px solid var(--border);
+    background:
+      radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--surface-card-2) 40%, #fff 12%), var(--surface-card-2) 62%);
+    color:var(--ink-primary); flex-shrink:0;
+    box-shadow:inset 0 1px 0 color-mix(in srgb, #fff 25%, transparent), 0 1px 2px rgba(0,0,0,.12);
   }
-  .ball.super{background:var(--critical); color:#fff; border-color:transparent; font-weight:700; box-shadow:0 0 0 3px color-mix(in srgb, var(--critical) 20%, transparent);}
-  .ball.hit{background:var(--good); color:#fff; border-color:transparent;}
+  .ball.super{
+    background:radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--critical) 70%, #fff 20%), var(--critical) 65%);
+    color:#fff; border-color:transparent; font-weight:800;
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--critical) 20%, transparent), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .ball.hit{
+    background:radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--good) 70%, #fff 25%), var(--good) 65%);
+    color:#fff; border-color:transparent; box-shadow:var(--glow-good), inset 0 1px 0 rgba(255,255,255,.35);
+  }
   .divider-label{font-size:11px; color:var(--ink-muted); margin:10px 0 4px;}
 
   /* disclosure banner */
@@ -102,10 +135,20 @@
   #history-table th:nth-child(2), #history-table td:nth-child(2){white-space:nowrap;}
   .mini-balls{display:flex; flex-wrap:wrap; gap:4px;}
   .mini-ball{
-    width:24px; height:24px; border-radius:7px; display:flex; align-items:center; justify-content:center;
-    font-size:10.5px; font-weight:700; background:var(--surface-card-2); color:var(--ink-secondary);
+    width:24px; height:24px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display); font-size:10.5px; font-weight:700; background:var(--surface-card-2); color:var(--ink-secondary);
+    transition:transform .12s ease;
   }
   .mini-ball.super{background:var(--critical); color:#fff;}
+  .mini-ball.hit{background:linear-gradient(155deg, color-mix(in srgb, var(--good) 75%, #fff 15%), var(--good)); color:#fff; box-shadow:var(--glow-good);}
+  .mini-ball.hit.super{background:var(--critical); box-shadow:0 0 0 2px var(--good) inset;}
+  .history-wrap tr:hover .mini-ball{transform:translateY(-1px);}
+  .history-legend{display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--ink-muted); margin:0 0 10px;}
+  .history-legend .lg-item{display:flex; align-items:center; gap:5px;}
+  .history-legend .lg-dot{width:13px; height:13px; border-radius:4px; display:inline-block;}
+  .history-legend .lg-dot.hit{background:var(--good);}
+  .history-legend .lg-dot.super{background:var(--critical);}
+  .history-legend .lg-dot.plain{background:var(--surface-card-2); border:1px solid var(--border, rgba(120,120,120,.3));}
 
   /* star-count control */
   .methods-head{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
@@ -118,11 +161,12 @@
 
   /* consensus (highlight) card */
   .consensus-card{
-    border:1.5px solid var(--accent); border-radius:14px; background:var(--surface-card);
+    border:1.5px solid var(--accent); border-radius:16px; background:var(--surface-card);
     padding:16px; margin-bottom:14px;
+    box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent), 0 10px 26px -18px var(--accent);
   }
   .consensus-card .field-tag{border-color:var(--accent); color:var(--accent);}
-  .consensus-card .chip{width:32px; height:32px; font-size:13px;}
+  .consensus-card .chip{width:34px; height:34px; font-size:13.5px;}
 
   /* method grid */
   .method-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:12px;}
@@ -130,10 +174,11 @@
     display:inline-block; font-size:10.5px; padding:2px 8px; border-radius:99px; margin-bottom:8px;
     border:1px solid var(--border); color:var(--ink-secondary); background:var(--surface-card-2);
   }
-  .chip-row{display:flex; flex-wrap:wrap; gap:5px; margin-top:8px;}
+  .chip-row{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
   .chip{
-    position:relative; min-width:26px; height:26px; padding:0 6px; border-radius:8px; display:flex; align-items:center; justify-content:center;
-    font-size:12px; font-weight:700; color:#fff;
+    position:relative; min-width:28px; height:28px; padding:0 6px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display); font-size:12.5px; font-weight:700; color:#fff;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.3), 0 1px 3px rgba(0,0,0,.15);
   }
   .chip .agree-badge{
     position:absolute; top:-6px; right:-6px; min-width:14px; height:14px; padding:0 3px; border-radius:99px;
@@ -168,7 +213,6 @@
   }
 
   @media (max-width:420px){
-    .heatmap{grid-template-columns:repeat(8,1fr);}
     .method-grid{grid-template-columns:1fr 1fr;}
     .bt-row{grid-template-columns:90px 1fr 40px;}
   }
@@ -177,7 +221,7 @@
 <body>
 
 <header class="top">
-  <h1>賓果分析台 <span class="mono" style="font-weight:400;font-size:12px;color:var(--ink-muted);">BINGO BINGO</span></h1>
+  <h1>🎯 賓果分析台 <span class="mono" style="font-weight:400;font-size:12px;color:var(--ink-muted); -webkit-text-fill-color:var(--ink-muted);">BINGO BINGO</span></h1>
   <span class="status-pill"><span class="status-dot" id="live-dot"></span><span id="live-label">讀取中…</span></span>
 </header>
 
@@ -187,7 +231,7 @@
     <div class="hero-period">期別 <span class="val mono" id="hero-period">—</span> · <span id="hero-time">—</span></div>
   </div>
   <div class="ball-row" id="hero-balls"></div>
-  <div class="divider-label">超級獎號</div>
+  <div class="divider-label" id="hero-super-label">超級獎號</div>
   <div class="ball-row" id="hero-super"></div>
 </section>
 
@@ -209,6 +253,10 @@
 <section id="history-section">
   <h2>開獎歷史紀錄（最近 <span id="history-count" class="mono">—</span> 期）</h2>
   <div class="card">
+    <div class="history-legend">
+      <span class="lg-item"><span class="lg-dot hit"></span>當時「綜合建議」也有列出、且真的開出來的號碼</span>
+      <span class="lg-item"><span class="lg-dot plain"></span>一般開出號碼（BINGO BINGO 沒有超級獎號機制）</span>
+    </div>
     <div class="history-wrap">
       <table id="history-table">
         <thead><tr><th>期別</th><th>日期時間</th><th>開獎號碼</th></tr></thead>
@@ -271,10 +319,12 @@
     frequency:    {label:"頻率法（熱門號）", field:"統計學",              color:"var(--s1)", key:"frequency"},
     gap_due:      {label:"遺漏值法（該出理論）", field:"機率論・幾何分布", color:"var(--s2)", key:"gap_due"},
     bayesian:     {label:"貝氏後驗機率法", field:"機率論・精算學",        color:"var(--s3)", key:"bayesian"},
-    cooccurrence: {label:"共現矩陣法",     field:"代數・矩陣統計",        color:"var(--s4)", key:"cooccurrence"}
+    cooccurrence: {label:"共現矩陣法",     field:"代數・矩陣統計",        color:"var(--s4)", key:"cooccurrence"},
+    spatial:      {label:"空間自相關法（Moran's I）", field:"空間幾何學・空間統計", color:"var(--s6)", key:"spatial"},
+    spectral:     {label:"共現矩陣譜分析（特徵值分解）", field:"代數學・矩陣特徵值分解", color:"var(--s7)", key:"spectral"}
   };
   var CONSENSUS_META = {label:"綜合建議（多方法整合）", field:"跨方法排名整合", color:"var(--s5)", key:"consensus"};
-  var HITCHECK_ORDER = ["consensus","frequency","gap_due","bayesian","cooccurrence"];
+  var HITCHECK_ORDER = ["consensus","frequency","gap_due","bayesian","cooccurrence","spatial","spectral"];
   var currentStar = 10;
   var lastState = null;
 
@@ -308,8 +358,19 @@
         if(n === latest.superNumber) b.classList.add("super");
         heroBalls.appendChild(b);
       });
-      var sb = el("div","ball super mono", String(latest.superNumber || "—").padStart(2,"0"));
-      heroSuper.appendChild(sb);
+      // BINGO BINGO 這款遊戲本身沒有「超級獎號」這個機制，公開資料源對這個欄位
+      // 一律回傳 null；之前不管有沒有值都硬塞一顆球進去，null 時會顯示出
+      // "0—" 這種不完整的畫面。改成：有值才顯示這排跟標籤，沒有值就整排隱藏。
+      var heroSuperLabel = document.getElementById("hero-super-label");
+      if(latest.superNumber !== null && latest.superNumber !== undefined){
+        var sb = el("div","ball super mono", String(latest.superNumber).padStart(2,"0"));
+        heroSuper.appendChild(sb);
+        if(heroSuperLabel) heroSuperLabel.style.display = "";
+        heroSuper.style.display = "";
+      } else {
+        if(heroSuperLabel) heroSuperLabel.style.display = "none";
+        heroSuper.style.display = "none";
+      }
     }
 
     // 開獎歷史紀錄（取代原本的熱力圖）
@@ -325,9 +386,11 @@
         tr.appendChild(el("td","mono", ((d.date || "") + " " + (d.time || "")).trim() || "—"));
         var tdNums = document.createElement("td");
         var wrap = el("div","mini-balls");
+        var hitSet = d.suggested_hits || [];
         (d.numbers || []).slice().sort(function(a,b){return a-b;}).forEach(function(n){
           var b = el("span","mini-ball mono", String(n).padStart(2,"0"));
           if(n === d.superNumber) b.classList.add("super");
+          if(hitSet.indexOf(n) > -1) b.classList.add("hit");
           wrap.appendChild(b);
         });
         tdNums.appendChild(wrap);
@@ -382,7 +445,7 @@
 
     // informational (non-selection) methods
     var infoDefs = [
-      {key:"monte_carlo", field:"電腦模擬・空間幾何"},
+      {key:"monte_carlo", field:"電腦模擬統計"},
       {key:"combinatorial_coverage", field:"賽局理論・組合數學"}
     ];
     infoDefs.forEach(function(d){

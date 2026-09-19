@@ -7,7 +7,7 @@ import datetime
 import json
 import os
 
-from analysis import run_all, validate_draws
+from analysis import run_all, validate_draws, recent_suggestion_hits
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DRAWS_PATH = os.path.join(BASE_DIR, "data", "draws.json")
@@ -28,7 +28,15 @@ def main():
 
     # 給前端「開獎歷史紀錄」列表用：最近 N 期，新到舊排序。
     valid, _rejected = validate_draws(raw)
-    out["recent_draws"] = list(reversed(valid[-RECENT_DRAWS_LIMIT:]))
+    recent = valid[-RECENT_DRAWS_LIMIT:]
+
+    # 每一期「當時」的綜合建議號碼跟該期實際開獎比對，命中的號碼會在歷史列表上
+    # 標示出來（只用「該期之前」的歷史資料算建議，不是用未來資料回推，誠實對照）。
+    hits_by_period = recent_suggestion_hits(valid, recent_n=RECENT_DRAWS_LIMIT)
+    for d in recent:
+        d["suggested_hits"] = hits_by_period.get(d["period"], [])
+
+    out["recent_draws"] = list(reversed(recent))
 
     with open(STATS_PATH, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False)
