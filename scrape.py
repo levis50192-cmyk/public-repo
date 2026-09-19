@@ -67,6 +67,14 @@ def fetch_latest():
             f"{raw_text[:300]!r}"
         )
 
+    # 誠實更正（之前用 created_at 換算時間的做法有 bug）：原本以為 API 的
+    # created_at 是「這一期開獎當下」的時間戳記，轉成台灣時間後拆成 date/time。
+    # 但實際抓資料驗證後發現，created_at／updated_at 其實是「這批資料被寫進
+    # 資料庫的批次同步時間」，同一批（往往連續 10 幾期）會共用完全相同的
+    # created_at，導致畫面上一整排不同期別、不同號碼的開獎，顯示出一模一樣
+    # 的時間（例如都顯示 23:00）。這裡不再採用 API 的 created_at／draw_date
+    # 當作逐期時間來源，改成只留下 period／numbers／superNumber，時間欄位
+    # 交給呼叫端用「期別間隔固定 5 分鐘」的方式另外推算（見 _assign_times）。
     out = []
     for r in records:
         if not isinstance(r, dict):
@@ -77,27 +85,14 @@ def fetch_latest():
         period = r.get("period")
         if period is None:
             continue
-        # API 的 created_at 是 UTC 時間，不是台灣本地時間；之前直接把它當
-        # 台灣時間顯示，導致每天 UTC 16:00~23:59（=台灣 00:00~07:59）開出
-        # 的期別，日期跟時間都會少 8 小時、甚至日期跳到前一天。這裡統一轉
-        # 成台灣時間（UTC+8）再拆成 date / time 兩個欄位。draw_date 欄位
-        # 同樣可能是以 UTC 日界線切的，所以不直接採用，一律以轉換後的結果
-        # 為準；轉換失敗（欄位缺失或格式異常）才退回原本的 draw_date。
-        created_at = r.get("created_at") or ""
-        date_str, time_str = r.get("draw_date"), ""
-        if created_at:
-            try:
-                dt_utc = datetime.datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
-                dt_tw = dt_utc + TAIPEI_OFFSET
-                date_str = dt_tw.strftime("%Y-%m-%d")
-                time_str = dt_tw.strftime("%H:%M")
-            except ValueError:
-                pass
+        try:
+            period_int = int(period)
+        except (TypeError, ValueError):
+            continue
         out.append(
             {
                 "period": str(period),
-                "date": date_str,
-                "time": time_str,
+                "_period_int": period_int,
                 "numbers": nums,
                 # 這個公開資料源目前對賓果賓果不提供超級獎號（回傳 null），
                 # analysis.py 的驗證邏輯本來就把 superNumber 當作可選欄位處理。
@@ -105,6 +100,45 @@ def fetch_latest():
             }
         )
     return out
+
+
+def _assign_times(new_records, now_utc, prev_anchor=None):
+    """
+    幫這次新抓到的期別推算「日期／時間」顯示欄位。
+
+    做法：賓果賓果公開規則是每 5 分鐘開一期，期別數字逐期加 1；用「現在
+    （UTC 轉台灣時間）」當作這批資料裡最新一期的時間錨點，其餘每往前推
+    一期就往回推 5 分鐘。這是在 API 沒有提供可信逐期時間戳記的情況下，
+    唯一能重建出「每期時間確實間隔 5 分鐘」這個已知事實的方法，比直接
+    採用 API 的批次同步時間（created_at）準確很多。
+
+    prev_anchor（選填）是「目前已經記錄過、期別最大的那筆資料」的
+    (period_int, 已存的 datetime)；如果有給，會確保新算出來的時間至少
+    比它晚（用同樣的 5 分鐘間隔往後推），避免「現在時間」剛好比理論值
+    還早（例如排程間隔比較密、或系統時鐘有一點誤差）時，新期別的時間
+    反而比前一期還早，出現時間倒退的怪現象。
+
+    已知的誤差來源（誠實寫在這裡，不隱藏）：如果賓果賓果在某些時段有暫停
+    （例如跨日維護空檔），這個推算在暫停前後那幾期的時間可能會有一些偏差；
+    另外「現在」跟「最新一期真正開獎的時間」中間也會有排程延遲的幾分鐘
+    誤差。這個時間欄位純粹是給人看的顯示用途，不影響下面統計分析引擎的
+    任何計算（分析引擎只用期別順序跟開獎號碼，不吃這個時間欄位）。
+    """
+    if not new_records:
+        return
+    anchor_period = max(d["_period_int"] for d in new_records)
+    anchor_dt = now_utc + TAIPEI_OFFSET
+    if prev_anchor is not None:
+        prev_period, prev_dt = prev_anchor
+        floor_dt = prev_dt + datetime.timedelta(minutes=5 * (anchor_period - prev_period))
+        if floor_dt > anchor_dt:
+            anchor_dt = floor_dt
+    for d in new_records:
+        offset_periods = anchor_period - d["_period_int"]
+        dt = anchor_dt - datetime.timedelta(minutes=5 * offset_periods)
+        d["date"] = dt.strftime("%Y-%m-%d")
+        d["time"] = dt.strftime("%H:%M")
+        d.pop("_period_int", None)
 
 
 def load_existing():
@@ -124,11 +158,38 @@ def main():
         return 0
 
     by_period = {d["period"]: d for d in existing}
-    added = 0
+
+    # 只針對「這次才第一次看到」的期別推算時間；已經記錄過的期別維持原本算過
+    # 的日期／時間不變——避免同一期在還沒過期、被重複抓到時，因為每次錨點
+    # （現在時間）不同，導致時間欄位每次排程都跳來跳去。
+    new_records = [d for d in fresh if d["period"] not in by_period]
+    new_periods = {d["period"] for d in new_records}
+
+    prev_anchor = None
+    if by_period:
+        last = max(by_period.values(), key=lambda d: int(d["period"]))
+        if last.get("date") and last.get("time"):
+            try:
+                prev_dt = datetime.datetime.strptime(
+                    f"{last['date']} {last['time']}", "%Y-%m-%d %H:%M"
+                )
+                prev_anchor = (int(last["period"]), prev_dt)
+            except ValueError:
+                pass
+
+    now_utc_naive = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    _assign_times(new_records, now_utc_naive, prev_anchor=prev_anchor)
+    added = len(new_records)
+
+    for d in new_records:
+        by_period[d["period"]] = d
     for d in fresh:
-        if d["period"] not in by_period:
-            added += 1
-        by_period[d["period"]] = d  # 同一期以最新抓到的內容為準
+        # 期別已經存在過：只更新號碼／超級獎號（萬一上游資料有訂正），保留
+        # 原本算過的 date/time，不要用新的批次重新覆蓋。
+        if d["period"] not in new_periods and d["period"] in by_period:
+            existing_rec = by_period[d["period"]]
+            existing_rec["numbers"] = d["numbers"]
+            existing_rec["superNumber"] = d["superNumber"]
 
     merged = sorted(by_period.values(), key=lambda d: d["period"])
     if len(merged) > MAX_KEEP:
