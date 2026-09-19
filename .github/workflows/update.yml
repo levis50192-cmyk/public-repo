@@ -3,7 +3,7 @@ name: 更新賓果賓果開獎資料與統計
 on:
   schedule:
     # 每 15 分鐘檢查一次新開獎（GitHub 排程在系統忙碌時可能延遲幾分鐘，屬正常現象）
-    - cron: "*/15 * * * *"
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch: {}   # 讓你在 GitHub 網頁上可以手動按「Run workflow」立刻跑一次
 
 permissions:
