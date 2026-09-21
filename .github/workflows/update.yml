@@ -2,7 +2,12 @@ name: 更新賓果賓果開獎資料與統計
 
 on:
   schedule:
-    # 每 15 分鐘檢查一次新開獎（GitHub 排程在系統忙碌時可能延遲幾分鐘，屬正常現象）
+    # 每 15 分鐘檢查一次新開獎。故意不排在整點/整 15 分（00, 15, 30, 45）這種
+    # 整數時間點，改成錯開 7 分鐘（07, 22, 37, 52）——GitHub 官方文件明確說
+    # 排程請求最擁擠的時候就是每個整點附近跟其他常見的整數時間點，全世界一堆
+    # repo 都排在那個時間點，GitHub 忙不過來時可能會延後甚至直接跳過那次排程。
+    # 錯開幾分鐘是 GitHub 自己建議的降低延遲/跳過機率的做法（不保證完全不會
+    # 延遲，只是比較不會撞到尖峰）。
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch: {}   # 讓你在 GitHub 網頁上可以手動按「Run workflow」立刻跑一次
 
@@ -24,6 +29,11 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+
+      - name: 安裝 Playwright（無頭瀏覽器，抓資料網站現在要用得到）
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
 
       - name: 抓取最新開獎資料
         run: python3 scrape.py
