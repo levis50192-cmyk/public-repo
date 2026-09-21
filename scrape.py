@@ -1,103 +1,110 @@
 #!/usr/bin/env python3
 """
-從 lottery.timetable.tw 的公開 JSON API 抓取台灣彩券 BINGO BINGO（賓果賓果，
-gameTypeId=10）最新開獎資料，合併進 data/draws.json。
+抓取台灣彩券 BINGO BINGO（賓果賓果）最新開獎資料，合併進 data/draws.json。
 
-重要：這支程式是普通的 Python HTTP request，跑在 GitHub Actions 的一般 CI
-執行環境裡（不是 Claude 工具呼叫），所以不會觸發任何「是否允許存取網站」的
-核准視窗，可以真正無人值守、每次排程自動執行，不需要任何人手動點擊。
+重要：這支程式是普通的 Python 程式，跑在 GitHub Actions 的一般 CI 執行環境裡
+（不是 Claude 工具呼叫），所以不會觸發任何「是否允許存取網站」的核准視窗，
+可以真正無人值守、每次排程自動執行，不需要任何人手動點擊。
 
-API 為公開唯讀端點，不需要金鑰或登入：
-    GET https://lottery.timetable.tw/api/draws?gameTypeId=10&limit=500&sortOrder=DESC
+【誠實記錄：這是第二個資料來源，換過一次】原本用 lottery.timetable.tw 這個
+公開 JSON API，結構乾淨、原本用起來沒問題，但陸續發現三種不同的可靠性問題：
+(1) 它自己同步時偶爾會整批漏掉幾期資料；(2) 曾經卡住好幾小時才恢復；
+(3) 這次直接整整停擺了快 14 小時、上百期沒有更新，而同時間其他獨立來源
+（例如彩世界開獎網 988cp.net）跟官方開獎其實都正常。追查後判斷是這個
+第三方 API 本身的服務不穩，不是我們抓取程式或 GitHub Actions 排程的問題，
+但既然它已經連續出過三次狀況，就不適合再繼續依賴它。
+
+改用 988cp.net 這個即時開獎網站的「歷史查詢」頁面：
+    https://988cp.net/history?g=BingoBingo
+這個頁面沒有公開文件記載的 JSON API（試過幾個常見的 /api/... 路徑都是
+404），資料是網頁渲染出來的文字，所以改用 Playwright 開一個無頭瀏覽器
+把頁面實際載入、讀取渲染後的純文字內容，再用固定格式（「HH:MM 期別期」
+後面接著一行 40 位數字，也就是 20 個開獎號碼各兩位數字串接）解析出每一期
+的期別跟號碼。這個頁面預設會顯示最近 100 期（約 8 小時份量），遠超過我們
+15 分鐘排程一次所需要的量，就算某次排程漏跑、或這個網站本身短暫不穩，
+下一次成功執行時通常還是能把中間漏掉的期數一次補齊，比之前那種「漏了就
+永遠補不回來」的情況更耐用。
+
+只抓期別（period）跟 20 個號碼；日期／時間刻意不採用這個網站顯示的文字
+（避免又踩到前一個資料源「時間戳記不可信」的同類問題），而是沿用既有的
+「期別 ↔ 現在時間」自我校正錨點機制（見下面 _get_anchor），完全不吃任何
+外部來源的時間欄位。超級獎號（superNumber）這個資料源目前沒有穩定抓取，
+一律留白（None）——之前的資料源也是回傳 null，前端本來就把它當可選欄位、
+沒有資料時就不顯示那個區塊，行為不變。
 """
 import datetime
 import json
 import os
+import re
 import sys
-import urllib.request
 
 TAIPEI_OFFSET = datetime.timedelta(hours=8)  # 台灣全年不用日光節約時間，固定 UTC+8
 
-API_URL = (
-    "https://lottery.timetable.tw/api/draws"
-    "?gameTypeId=10&limit=500&sortOrder=DESC"
-)
+SOURCE_URL = "https://988cp.net/history?g=BingoBingo"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(BASE_DIR, "data", "draws.json")
 MAX_KEEP = 8000  # 約可涵蓋最近一個多月的每 5 分鐘開獎，避免檔案無限成長
 
+# 「HH:MM  期別期」後面一行 40 位數字（20 個號碼各兩位）。988cp.net 目前的
+# 版面就是這個順序：時間跟期別一行，緊接著號碼一行，再來是猜大小／猜單雙
+# 那行（不理會）。用 re.finditer 逐一掃描整段渲染後的純文字。
+_RECORD_RE = re.compile(r"(\d{2}:\d{2})\s+(\d{9})\s*期\s*\n\s*(\d{40})")
+
+
+def _fetch_rendered_text(timeout_ms=30000):
+    """用 headless Chromium 把歷史頁面實際載入一次，回傳渲染後的純文字。"""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = browser.new_page(
+                viewport={"width": 1280, "height": 900},
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                ),
+                locale="zh-TW",
+            )
+            page.goto(SOURCE_URL, timeout=timeout_ms, wait_until="domcontentloaded")
+            # 頁面資料是進站後才用前端邏輯畫出來的，給它一點時間渲染；
+            # 用「等到至少出現一個『期』字」取代死等固定秒數，較不脆弱。
+            page.wait_for_selector("text=期", timeout=timeout_ms)
+            page.wait_for_timeout(1500)
+            text = page.inner_text("body")
+        finally:
+            browser.close()
+    return text
+
 
 def fetch_latest():
-    req = urllib.request.Request(
-        API_URL,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; bingo-analysis-bot/1.0)",
-            "Accept": "application/json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        status = resp.status
-        raw_bytes = resp.read()
+    text = _fetch_rendered_text()
 
-    raw_text = raw_bytes.decode("utf-8", errors="replace")
-    try:
-        payload = json.loads(raw_text)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(
-            f"回應不是合法 JSON（HTTP {status}）：{raw_text[:300]!r}"
-        ) from e
-
-    # 相容 API 直接回傳陣列，或包在 {"records": [...]}／{"data": [...]}
-    # 等常見包法；如果是其他形狀（例如錯誤訊息物件 {"error": "..."}），
-    # 明確報錯，不要誤把它當成資料列（之前的 bug：對字典 fallback 到
-    # 自己，結果對字典做 for 迴圈會拿到 key 字串，導致 'str' object
-    # has no attribute 'get'）。目前已確認 lottery.timetable.tw 實際
-    # 是用 "records" 這個欄位包資料。
-    records = None
-    if isinstance(payload, list):
-        records = payload
-    elif isinstance(payload, dict):
-        for key in ("records", "data", "draws", "results", "items"):
-            if isinstance(payload.get(key), list):
-                records = payload[key]
-                break
-    if records is None:
-        raise RuntimeError(
-            f"回應格式不是預期的陣列或已知的包裝格式（HTTP {status}）："
-            f"{raw_text[:300]!r}"
-        )
-
-    # 誠實更正（之前用 created_at 換算時間的做法有 bug）：原本以為 API 的
-    # created_at 是「這一期開獎當下」的時間戳記，轉成台灣時間後拆成 date/time。
-    # 但實際抓資料驗證後發現，created_at／updated_at 其實是「這批資料被寫進
-    # 資料庫的批次同步時間」，同一批（往往連續 10 幾期）會共用完全相同的
-    # created_at，導致畫面上一整排不同期別、不同號碼的開獎，顯示出一模一樣
-    # 的時間（例如都顯示 23:00）。這裡不再採用 API 的 created_at／draw_date
-    # 當作逐期時間來源，改成只留下 period／numbers／superNumber，時間欄位
-    # 交給呼叫端用「期別間隔固定 5 分鐘」的方式另外推算（見 _assign_times）。
     out = []
-    for r in records:
-        if not isinstance(r, dict):
+    seen = set()
+    for m in _RECORD_RE.finditer(text):
+        _time_str, period, digits = m.groups()
+        if period in seen:
             continue
-        nums = r.get("numbers")
-        if not isinstance(nums, list) or len(nums) != 20:
+        nums = [int(digits[i : i + 2]) for i in range(0, 40, 2)]
+        # 防呆：BINGO BINGO 是從 1~80 選 20 個「不重複」的號碼，任何一項
+        # 對不上就當成解析壞掉（例如網站改版、剛好卡到還沒渲染完的畫面），
+        # 這期直接跳過，不要把髒資料寫進 draws.json。
+        if len(nums) != 20 or len(set(nums)) != 20 or any(n < 1 or n > 80 for n in nums):
             continue
-        period = r.get("period")
-        if period is None:
-            continue
-        try:
-            period_int = int(period)
-        except (TypeError, ValueError):
-            continue
+        seen.add(period)
         out.append(
             {
-                "period": str(period),
-                "_period_int": period_int,
-                "numbers": nums,
-                # 這個公開資料源目前對賓果賓果不提供超級獎號（回傳 null），
-                # analysis.py 的驗證邏輯本來就把 superNumber 當作可選欄位處理。
-                "superNumber": r.get("special_number"),
+                "period": period,
+                "numbers": sorted(nums),
+                "superNumber": None,
             }
+        )
+
+    if not out:
+        raise RuntimeError(
+            "從 988cp.net 渲染出來的內容裡一筆有效資料都解析不到——"
+            "可能是網站改版了格式，也可能是這次載入沒等到內容出現。"
         )
     return out
 
@@ -105,30 +112,17 @@ def fetch_latest():
 ANCHOR_PATH = os.path.join(BASE_DIR, "data", "time_anchor.json")
 
 
-def _load_or_create_anchor(all_period_ints, now_utc_naive):
-    """
-    建立（只建立一次）並讀取一個固定不變的「期別 ↔ 台灣時間」錨點。
+def _load_saved_anchor():
+    if not os.path.exists(ANCHOR_PATH):
+        return None, None
+    with open(ANCHOR_PATH, "r", encoding="utf-8") as f:
+        saved = json.load(f)
+    return saved["anchor_period"], datetime.datetime.strptime(
+        saved["anchor_time"], "%Y-%m-%d %H:%M"
+    )
 
-    賓果賓果公開規則是每 5 分鐘開一期、期別數字逐期加 1，這是可以信賴的事實；
-    但 API 沒有提供可信的逐期時間戳記（created_at 其實是批次同步時間，同一批
-    會共用同一個值，詳見上面 fetch_latest 的說明），所以用這個固定錨點 + 5
-    分鐘間隔反推每一期的時間，取代不可信的 API 時間欄位。
 
-    錨點只在第一次執行（找不到 time_anchor.json）時建立一次，用當下抓到的
-    最大期別 + 現在的台灣時間當基準，之後永久寫死、不再更動。之後每次都用
-    同一個錨點對「全部」資料（不管新舊）重新套公式計算 date/time——這樣同一
-    期別任何時候算出來的時間都一樣（穩定、不會每次排程亂跳），而且能一次
-    修好舊版程式誤用 created_at 算出來的錯誤時間（同一批期別顯示同一個時間
-    的問題），不用等資料自然汰換掉。
-    """
-    if os.path.exists(ANCHOR_PATH):
-        with open(ANCHOR_PATH, "r", encoding="utf-8") as f:
-            saved = json.load(f)
-        return saved["anchor_period"], datetime.datetime.strptime(
-            saved["anchor_time"], "%Y-%m-%d %H:%M"
-        )
-    anchor_period = max(all_period_ints)
-    anchor_dt = now_utc_naive + TAIPEI_OFFSET
+def _save_anchor(anchor_period, anchor_dt):
     os.makedirs(os.path.dirname(ANCHOR_PATH), exist_ok=True)
     with open(ANCHOR_PATH, "w", encoding="utf-8") as f:
         json.dump(
@@ -136,7 +130,41 @@ def _load_or_create_anchor(all_period_ints, now_utc_naive):
             f,
             ensure_ascii=False,
         )
-    return anchor_period, anchor_dt
+
+
+def _get_anchor(all_period_ints, now_utc_naive):
+    """
+    取得（並在需要時更新）一個「期別 ↔ 台灣時間」錨點，用來推算每一期的顯示時間。
+
+    賓果賓果公開規則是每 5 分鐘開一期、期別數字逐期加 1；但 API 沒有提供可信
+    的逐期時間戳記（created_at 其實是批次同步時間，同一批會共用同一個值，
+    詳見上面 fetch_latest 的說明），所以用「錨點 + 5 分鐘間隔」反推每一期的
+    時間，取代不可信的 API 時間欄位。
+
+    【這裡是第二次修正，誠實記錄前一版錯在哪】：上一版把錨點「只建立一次、
+    之後永久寫死」，原本用意是讓時間穩定、不會每次排程亂跳。但實測發現
+    BINGO BINGO 晚上有一段真的會暫停開獎的維護時間（期別數字在暫停期間不會
+    前進，可是現實時間照樣在走），一次永久寫死的錨點沒辦法感知這種暫停，
+    每次暫停都會讓「用期別反推出來的時間」跟實際時間多差一截、而且不會自己
+    修正，幾天累積下來就會差到十幾個小時（使用者回報「現在都早上了，網站卻
+    還顯示昨天下午」正是這個累積誤差）。
+
+    修正邏輯：每次執行都比較「這次抓到的最大期別」跟「上次存的錨點期別」。
+      - 如果有抓到更新的期別（代表確實有新資料進來），就把錨點重新校正到
+        「這個最新期別＝現在的台灣時間」──等於每次有新資料時都用真實時間
+        重新歸零一次，不會讓誤差一路累積下去，也能撐過每天的暫停空檔。
+      - 如果這次沒有抓到更新的期別（上游卡住、或剛好遇到批次同步的空檔），
+        就沿用舊錨點，不要讓時間憑空往前跳──否則會把「其實還沒開出來」的
+        期別顯示成「現在」，變成另一種造假。
+    """
+    saved_period, saved_dt = _load_saved_anchor()
+    current_max = max(all_period_ints)
+    if saved_period is None or current_max > saved_period:
+        anchor_period = current_max
+        anchor_dt = now_utc_naive + TAIPEI_OFFSET
+        _save_anchor(anchor_period, anchor_dt)
+        return anchor_period, anchor_dt
+    return saved_period, saved_dt
 
 
 def _apply_time_formula(records, anchor_period, anchor_dt):
@@ -144,12 +172,14 @@ def _apply_time_formula(records, anchor_period, anchor_dt):
     對每一筆資料套用：時間 = 錨點時間 + 5 分鐘 × (這期期別 - 錨點期別)。
     純粹由期別數字決定，不吃任何來自 API 的時間欄位，所以每次重算結果都一樣。
 
-    已知的誤差來源（誠實寫在這裡，不隱藏）：如果賓果賓果在某些時段有暫停
-    （例如跨日維護空檔），這個推算在暫停前後那幾期的時間可能會有一些偏差；
-    錨點本身也只是「建立當下」抓到的最新一期 vs. 現在時間，跟真正開獎時間
-    可能差個幾分鐘的排程延遲。這個時間欄位純粹是給人看的顯示用途，不影響
-    下面統計分析引擎的任何計算（分析引擎只用期別順序跟開獎號碼，不吃這個
-    時間欄位）。
+    已知的誤差來源（誠實寫在這裡，不隱藏）：因為錨點會在每次抓到新期別時
+    重新校正到現在的真實時間（見 _get_anchor），所以「最新一期」的顯示時間
+    誤差通常只有幾分鐘（排程間隔 + 上游同步延遲）；但如果賓果賓果在某段
+    期間暫停開獎（跨日維護空檔），暫停「之前」那些舊期別，是用暫停「之後」
+    重新校正的錨點往回推算，會被拉近成看起來間隔還是 5 分鐘一期，跟暫停前
+    那幾期實際開出的時間比，可能有偏差。這個時間欄位純粹是給人看的顯示
+    用途，不影響下面統計分析引擎的任何計算（分析引擎只用期別順序跟開獎
+    號碼，不吃這個時間欄位）。
     """
     for d in records:
         period_int = int(d["period"])
@@ -190,7 +220,7 @@ def main():
     all_period_ints = [int(p) for p in by_period.keys()]
     if all_period_ints:
         now_utc_naive = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
-        anchor_period, anchor_dt = _load_or_create_anchor(all_period_ints, now_utc_naive)
+        anchor_period, anchor_dt = _get_anchor(all_period_ints, now_utc_naive)
         _apply_time_formula(by_period.values(), anchor_period, anchor_dt)
 
     merged = sorted(by_period.values(), key=lambda d: d["period"])
